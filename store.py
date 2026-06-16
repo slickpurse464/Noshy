@@ -1,0 +1,556 @@
+"""
+Aion — persistent memory for AI agents.
+ICM-compatible schema with improvements:
+- LLM-powered fact extraction (vs rule-based)
+- Graph relationship tracking
+- Smarter decay and consolidation
+- MCP-native, Hermes-native
+"""
+import os
+import re
+import json
+import time
+import sqlite3
+import hashlib
+import logging
+from pathlib import Path
+from typing import Optional, List, Dict, Any, Tuple
+from datetime import datetime, timedelta
+from contextlib import contextmanager
+
+log = logging.getLogger("aion.store")
+
+# ────────────────────────────────────────────────────────────────
+# Constants (ICM-compatible)
+# ────────────────────────────────────────────────────────────────
+DEFAULT_EMBEDDING_DIMS = 768  # multilingual-e5-base
+
+SELECT_MEMORY_COLS = """
+    id, created_at, updated_at, last_accessed, access_count,
+    weight, topic, summary, raw_excerpt, keywords, embedding,
+    importance, source, project, expires_at
+"""
+
+SELECT_MEMOIR_COLS = """
+    id, created_at, updated_at, last_accessed, access_count,
+    title, content, content_hash, embedding, source, project
+"""
+
+SELECT_CONCEPT_COLS = """
+    id, name, category, description, embedding, created_at, updated_at
+"""
+
+
+class AionStore:
+    """Core memory store. Drop-in compatible with ICM's SQLite schema."""
+
+    def __init__(self, db_path: str = None, embedding_dims: int = DEFAULT_EMBEDDING_DIMS, embedder=None):
+        if db_path is None:
+            db_path = os.path.expanduser("~/.aion/memories.db")
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.embedding_dims = embedding_dims
+        self.embedder = embedder
+        self.conn = sqlite3.connect(str(self.db_path))
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
+        self._init_schema()
+        log.info(f"Aion store ready: {self.db_path}")
+
+    def _init_schema(self):
+        conn = self.conn
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS memories (
+            id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT '',
+            last_accessed TEXT NOT NULL,
+            access_count INTEGER DEFAULT 0,
+            weight REAL DEFAULT 1.0,
+            topic TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            raw_excerpt TEXT,
+            keywords TEXT,
+            embedding BLOB,
+            importance TEXT DEFAULT 'medium',
+            source TEXT DEFAULT 'aion',
+            project TEXT DEFAULT 'default',
+            expires_at TEXT,
+            -- Graph fields (Aion extension)
+            parent_id TEXT,
+            merged_from TEXT,
+            consolidation_count INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS memoirs (
+            id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT '',
+            last_accessed TEXT NOT NULL,
+            access_count INTEGER DEFAULT 0,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            content_hash TEXT,
+            embedding BLOB,
+            source TEXT DEFAULT 'aion',
+            project TEXT DEFAULT 'default'
+        );
+
+        CREATE TABLE IF NOT EXISTS concepts (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            category TEXT,
+            description TEXT,
+            embedding BLOB,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE TABLE IF NOT EXISTS concept_links (
+            memory_id TEXT NOT NULL,
+            concept_id TEXT NOT NULL,
+            strength REAL DEFAULT 1.0,
+            PRIMARY KEY (memory_id, concept_id),
+            FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE,
+            FOREIGN KEY (concept_id) REFERENCES concepts(id) ON DELETE CASCADE
+        );
+
+        -- Graph edges between memories (Aion extension)
+        CREATE TABLE IF NOT EXISTS memory_edges (
+            source_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            relation TEXT DEFAULT 'related',
+            strength REAL DEFAULT 0.5,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (source_id, target_id, relation),
+            FOREIGN KEY (source_id) REFERENCES memories(id) ON DELETE CASCADE,
+            FOREIGN KEY (target_id) REFERENCES memories(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS feedback (
+            id TEXT PRIMARY KEY,
+            memory_id TEXT NOT NULL,
+            score INTEGER NOT NULL CHECK(score IN (-1, 1)),
+            reason TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            project TEXT DEFAULT 'default',
+            source TEXT DEFAULT 'aion',
+            metadata TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS icm_metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS pending_extractions (
+            id TEXT PRIMARY KEY,
+            session_id TEXT,
+            raw_text TEXT NOT NULL,
+            source TEXT DEFAULT 'unknown',
+            created_at TEXT NOT NULL,
+            extracted_at TEXT,
+            status TEXT DEFAULT 'pending'
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_memories_topic ON memories(topic);
+        CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
+        CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance);
+        CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);
+        CREATE INDEX IF NOT EXISTS idx_memories_weight ON memories(weight);
+        CREATE INDEX IF NOT EXISTS idx_concepts_name ON concepts(name);
+        CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project);
+        CREATE INDEX IF NOT EXISTS idx_pending_status ON pending_extractions(status);
+        """)
+
+        # Try to create vec0 table if sqlite-vec is available
+        try:
+            conn.execute("SELECT vec_version()").fetchone()
+            conn.executescript(f"""
+            CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
+                memory_id TEXT PRIMARY KEY,
+                embedding float[{self.embedding_dims}] distance_metric=cosine
+            );
+            """)
+            log.info("sqlite-vec enabled for vector search")
+        except Exception:
+            log.info("sqlite-vec not available — using blob-based cosine similarity fallback")
+
+    # ──────────── CRUD Operations ────────────
+
+    def store_memory(
+        self,
+        topic: str,
+        summary: str,
+        *,
+        raw_excerpt: str = None,
+        keywords: List[str] = None,
+        embedding: bytes = None,
+        importance: str = "medium",
+        source: str = "aion",
+        project: str = "default",
+        parent_id: str = None,
+        auto_embed: bool = True,
+    ) -> str:
+        """Store a new episodic memory. Returns the memory ID."""
+        now = datetime.utcnow().isoformat()
+        memory_id = _ulid()
+        kw_str = ",".join(keywords) if keywords else None
+
+        # Auto-embed if no embedding provided
+        if auto_embed and embedding is None and self.embedder is not None:
+            try:
+                embeddings = self.embedder.embed([summary])
+                if embeddings:
+                    embedding = embeddings[0]
+            except Exception as e:
+                log.debug(f"Auto-embed failed: {e}")
+
+        # Deduplication: check for similar existing memory
+        dedup_id = self._find_duplicate(topic, summary, project)
+        if dedup_id:
+            self.conn.execute("""
+            UPDATE memories SET weight = MIN(weight + 0.3, 3.0),
+                updated_at = ?, last_accessed = ?, access_count = access_count + 1,
+                summary = CASE WHEN length(?) > length(summary) THEN ? ELSE summary END
+            WHERE id = ?
+            """, (now, now, summary, summary, dedup_id))
+            self.conn.commit()
+            log.debug(f"Dedup: bumped weight on {dedup_id[:12]}")
+            return dedup_id
+
+        self.conn.execute("""
+        INSERT INTO memories (id, created_at, updated_at, last_accessed, weight,
+            topic, summary, raw_excerpt, keywords, embedding, importance, source, project, parent_id)
+        VALUES (?, ?, ?, ?, 1.0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (memory_id, now, now, now, topic, summary, raw_excerpt,
+              kw_str, embedding, importance, source, project, parent_id))
+
+        # Store vector if available
+        if embedding:
+            self._store_vector(memory_id, embedding)
+
+        self.conn.commit()
+        return memory_id
+
+    def store_memoir(
+        self,
+        title: str,
+        content: str,
+        *,
+        embedding: bytes = None,
+        source: str = "aion",
+        project: str = "default",
+    ) -> str:
+        """Store permanent knowledge (memoir)."""
+        now = datetime.utcnow().isoformat()
+        memoir_id = _ulid()
+        content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
+
+        # Check for duplicate
+        existing = self.conn.execute(
+            "SELECT id FROM memoirs WHERE content_hash = ?",
+            (content_hash,)
+        ).fetchone()
+        if existing:
+            return existing["id"]
+
+        self.conn.execute("""
+        INSERT INTO memoirs (id, created_at, updated_at, last_accessed,
+            title, content, content_hash, embedding, source, project)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (memoir_id, now, now, now, title, content, content_hash, embedding, source, project))
+        self.conn.commit()
+        return memoir_id
+
+    # ──────────── Search / Recall ────────────
+
+    def recall_by_topic(self, topic: str, limit: int = 15, project: str = None) -> List[Dict]:
+        """Keyword search on topic + summary."""
+        query = """
+        SELECT {} FROM memories WHERE (topic LIKE ? OR summary LIKE ? OR keywords LIKE ?)
+        """.format(SELECT_MEMORY_COLS)
+        params = [f"%{topic}%", f"%{topic}%", f"%{topic}%"]
+
+        if project:
+            query += " AND project = ?"
+            params.append(project)
+
+        query += " ORDER BY weight * access_count DESC LIMIT ?"
+        params.append(limit)
+
+        rows = self.conn.execute(query, params).fetchall()
+        self._touch([r["id"] for r in rows])
+        return [dict(r) for r in rows]
+
+    def recall_semantic(self, embedding: bytes, limit: int = 15, project: str = None) -> List[Dict]:
+        """Vector similarity search. Falls back to keyword if no vec index."""
+        # Try vec0 first
+        try:
+            rows = self.conn.execute("""
+            SELECT m.{}
+            FROM vec_memories v
+            JOIN memories m ON v.memory_id = m.id
+            WHERE v.embedding MATCH ?
+            ORDER BY v.distance LIMIT ?
+            """.format(SELECT_MEMORY_COLS.replace(",", ", m.").replace("m.,", "", 1)),
+            (embedding, limit)
+            ).fetchall()
+            if rows:
+                self._touch([r["id"] for r in rows])
+                return [dict(r) for r in rows]
+        except Exception:
+            pass
+
+        # Fallback: cosine similarity on blob
+        all_rows = self.conn.execute(
+            "SELECT {} FROM memories WHERE embedding IS NOT NULL ORDER BY weight DESC".format(
+                SELECT_MEMORY_COLS)
+        ).fetchall()
+        scored = []
+        for row in all_rows:
+            if row["embedding"]:
+                score = _cosine_similarity(embedding, row["embedding"])
+                scored.append((score, dict(row)))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [r for _, r in scored[:limit]]
+
+    def recall_hybrid(self, query: str, embedding: bytes = None, limit: int = 15, project: str = None) -> List[Dict]:
+        """Combine keyword + semantic + graph recall for best results."""
+        results = {}
+
+        # Keyword layer
+        for r in self.recall_by_topic(query, limit=limit, project=project):
+            results[r["id"]] = r
+
+        # Semantic layer
+        if embedding:
+            for r in self.recall_semantic(embedding, limit=limit, project=project):
+                if r["id"] not in results:
+                    results[r["id"]] = r
+
+        # Graph layer: pull in connected memories
+        if results:
+            id_list = list(results.keys())[:30]
+            placeholders = ",".join("?" * len(id_list))
+            graph_rows = self.conn.execute(f"""
+            SELECT m.*, e.relation, e.strength as edge_strength
+            FROM memory_edges e
+            JOIN memories m ON (e.target_id = m.id OR e.source_id = m.id)
+            WHERE (e.source_id IN ({placeholders}) OR e.target_id IN ({placeholders}))
+            AND m.id NOT IN ({placeholders})
+            ORDER BY e.strength DESC LIMIT ?
+            """, id_list + id_list + id_list + [limit]).fetchall()
+            for row in graph_rows:
+                rid = row["id"]
+                if rid not in results:
+                    results[rid] = dict(row)
+
+        return sorted(results.values(), key=lambda r: r.get("weight", 1), reverse=True)[:limit]
+
+    # ──────────── Graph Operations ────────────
+
+    def link_memories(self, source_id: str, target_id: str, relation: str = "related", strength: float = 0.5):
+        """Create a graph edge between two memories."""
+        self.conn.execute("""
+        INSERT OR REPLACE INTO memory_edges (source_id, target_id, relation, strength, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """, (source_id, target_id, relation, strength, datetime.utcnow().isoformat()))
+        self.conn.commit()
+
+    def link_concept(self, memory_id: str, concept_name: str, category: str = None) -> str:
+        """Link a memory to a concept, creating the concept if needed."""
+        concept_id = _hash_id(concept_name.lower())
+        now = datetime.utcnow().isoformat()
+
+        self.conn.execute("""
+        INSERT OR IGNORE INTO concepts (id, name, category, description, created_at, updated_at)
+        VALUES (?, ?, ?, '', ?, ?)
+        """, (concept_id, concept_name.lower(), category, now, now))
+
+        self.conn.execute("""
+        INSERT OR REPLACE INTO concept_links (memory_id, concept_id, strength) VALUES (?, ?, 1.0)
+        """, (memory_id, concept_id))
+        self.conn.commit()
+        return concept_id
+
+    # ──────────── Maintenance ────────────
+
+    def consolidate(self, topic: str, min_weight: float = 0.3) -> int:
+        """Merge related memories on the same topic into a single consolidated memory."""
+        rows = self.conn.execute("""
+        SELECT * FROM memories WHERE topic = ? AND weight >= ? ORDER BY created_at
+        """, (topic, min_weight)).fetchall()
+        if len(rows) < 2:
+            return 0
+        merged = "; ".join(r["summary"] for r in rows)
+        merged_id = rows[-1]["id"]
+        self.conn.execute(
+            "UPDATE memories SET summary = ?, merged_from = ?, consolidation_count = consolidation_count + 1 WHERE id = ?",
+            (merged, ",".join(r["id"] for r in rows[:-1]), merged_id)
+        )
+        self.conn.commit()
+        return len(rows) - 1
+
+    def decay_weights(self, decay_rate: float = 0.95):
+        """Apply daily decay to memory weights."""
+        self.conn.execute("UPDATE memories SET weight = weight * ?", (decay_rate,))
+        self.conn.execute("DELETE FROM memories WHERE weight < 0.1")
+        self.conn.commit()
+
+    def get_stats(self) -> Dict:
+        """Get store statistics."""
+        return {
+            "memory_count": self.conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0],
+            "memoir_count": self.conn.execute("SELECT COUNT(*) FROM memoirs").fetchone()[0],
+            "concept_count": self.conn.execute("SELECT COUNT(*) FROM concepts").fetchone()[0],
+            "edge_count": self.conn.execute("SELECT COUNT(*) FROM memory_edges").fetchone()[0],
+            "avg_weight": self.conn.execute("SELECT AVG(weight) FROM memories").fetchone()[0],
+        }
+
+    def export_all(self) -> Dict:
+        """Export all data for backup or migration."""
+        tables = {}
+        for table in ["memories", "memoirs", "concepts", "concept_links", "memory_edges", "sessions", "feedback"]:
+            rows = self.conn.execute(f"SELECT * FROM {table}").fetchall()
+            tables[table] = [dict(r) for r in rows]
+        return tables
+
+    def import_icm(self, icm_db_path: str) -> int:
+        """Import memories from an ICM database."""
+        if not os.path.exists(icm_db_path):
+            raise FileNotFoundError(f"ICM database not found: {icm_db_path}")
+
+        icm_conn = sqlite3.connect(icm_db_path)
+        icm_conn.row_factory = sqlite3.Row
+
+        # Import memories
+        count = 0
+        rows = icm_conn.execute("""
+        SELECT id, created_at, updated_at, last_accessed, access_count, weight,
+               topic, summary, raw_excerpt, keywords, embedding, source, project
+        FROM memories ORDER BY created_at
+        """).fetchall()
+
+        for row in rows:
+            try:
+                self.conn.execute("""
+                INSERT OR IGNORE INTO memories
+                (id, created_at, updated_at, last_accessed, access_count, weight,
+                 topic, summary, raw_excerpt, keywords, embedding, source, project)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, tuple(row))
+                count += 1
+            except Exception as e:
+                log.warning(f"Import skipped for {row['id']}: {e}")
+
+        self.conn.commit()
+        icm_conn.close()
+        log.info(f"Imported {count} memories from ICM")
+        return count
+
+    # ──────────── Helpers ────────────
+
+    def _find_duplicate(self, topic: str, summary: str, project: str) -> str | None:
+        """Check if a similar memory already exists. Returns ID or None."""
+        # Normalize for fuzzy matching: lowercase, strip punctuation
+        norm_summary = re.sub(r'[^\w\s]', '', summary.lower().strip())
+        if len(norm_summary) < 15:
+            return None
+
+        # Stop words to filter for better similarity
+        stop_words = {'the', 'a', 'an', 'is', 'was', 'are', 'were', 'been',
+                      'has', 'have', 'had', 'to', 'for', 'of', 'in', 'on', 'at',
+                      'by', 'with', 'from', 'this', 'that', 'it', 'and', 'or',
+                      'now', 'then', 'just', 'also', 'still', 'already', 'not'}
+
+        # Find memories with same topic
+        candidates = self.conn.execute("""
+        SELECT id, summary FROM memories
+        WHERE topic = ? AND project = ?
+        ORDER BY created_at DESC LIMIT 5
+        """, (topic, project)).fetchall()
+
+        words_new = set(norm_summary.split()) - stop_words
+        if len(words_new) < 3:
+            return None
+
+        best_sim = 0
+        best_id = None
+        for row in candidates:
+            existing = re.sub(r'[^\w\s]', '', row["summary"].lower().strip())
+            words_existing = set(existing.split()) - stop_words
+            if not words_new or not words_existing:
+                continue
+            overlap = len(words_new & words_existing)
+            union = len(words_new | words_existing)
+            similarity = overlap / union if union > 0 else 0
+
+            # Track best match (40%+ with stop words filtered)
+            if similarity >= 0.40 and similarity > best_sim:
+                best_sim = similarity
+                best_id = row["id"]
+
+        return best_id
+
+    def _store_vector(self, memory_id: str, embedding: bytes):
+        try:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO vec_memories (memory_id, embedding) VALUES (?, ?)",
+                (memory_id, embedding)
+            )
+        except Exception:
+            pass
+
+    def _touch(self, memory_ids: List[str]):
+        now = datetime.utcnow().isoformat()
+        for mid in memory_ids:
+            self.conn.execute(
+                "UPDATE memories SET last_accessed = ?, access_count = access_count + 1 WHERE id = ?",
+                (now, mid)
+            )
+        self.conn.commit()
+
+
+# ──────────── Utilities ────────────
+
+def _ulid() -> str:
+    """Generate a ULID-like ID (time-sortable)."""
+    import random, string
+    ts = int(time.time() * 1000)
+    ts_enc = _encode_ts(ts)
+    rand = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
+    return f"{ts_enc}{rand}"
+
+def _encode_ts(ts: int) -> str:
+    """Crockford Base32 encode a timestamp."""
+    alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+    result = []
+    for _ in range(10):
+        result.append(alphabet[ts & 0x1F])
+        ts >>= 5
+    return ''.join(reversed(result))
+
+def _hash_id(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+def _cosine_similarity(vec_a: bytes, vec_b: bytes) -> float:
+    """Compute cosine similarity between two float32 byte vectors."""
+    import struct
+    size = min(len(vec_a), len(vec_b)) // 4
+    a = struct.unpack(f'{size}f', vec_a[:size * 4])
+    b = struct.unpack(f'{size}f', vec_b[:size * 4])
+    dot = sum(x * y for x, y in zip(a, b))
+    mag_a = sum(x * x for x in a) ** 0.5
+    mag_b = sum(x * x for x in b) ** 0.5
+    if mag_a == 0 or mag_b == 0:
+        return 0.0
+    return dot / (mag_a * mag_b)
