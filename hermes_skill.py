@@ -23,7 +23,7 @@ def get_store():
 
 # ──────────── Tool Functions (called by Hermes) ────────────
 
-def noshmem_remember(topic: str, summary: str, *, keywords: list = None, importance: str = "medium", project: str = "default") -> str:
+def noshy_remember(topic: str, summary: str, *, keywords: list = None, importance: str = "medium", project: str = "default") -> str:
     """Store a memory. Use this to remember ANYTHING that matters — decisions, facts, bugs, fixes, user preferences, project state.
     
     Args:
@@ -37,7 +37,7 @@ def noshmem_remember(topic: str, summary: str, *, keywords: list = None, importa
     mid = store.store_memory(topic=topic, summary=summary, keywords=keywords, importance=importance, project=project)
     return f"Memory stored: {mid}"
 
-def noshmem_recall(query: str, *, project: str = None, limit: int = 15) -> str:
+def noshy_recall(query: str, *, project: str = None, limit: int = 15) -> str:
     """Search and recall memories. Use this before starting any task or when you need context.
     
     Args:
@@ -59,7 +59,7 @@ def noshmem_recall(query: str, *, project: str = None, limit: int = 15) -> str:
         lines.append(f"{i}. [{imp}] {topic}" + (f" [{project}]" if project else "") + f"\n   {summary}")
     return "\n\n".join(lines)
 
-def noshmem_learn(title: str, content: str, *, project: str = "default") -> str:
+def noshy_learn(title: str, content: str, *, project: str = "default") -> str:
     """Store permanent knowledge — documentation, reference material, facts that don't expire.
     
     Args:
@@ -71,7 +71,7 @@ def noshmem_learn(title: str, content: str, *, project: str = "default") -> str:
     mid = store.store_memoir(title=title, content=content, project=project)
     return f"Memoir stored: {mid}"
 
-def noshmem_summary(project: str = None) -> str:
+def noshy_summary(project: str = None) -> str:
     """Get a summary of what's in memory. Call this at the start of a session to know what happened before.
     
     Args:
@@ -101,7 +101,7 @@ def noshmem_summary(project: str = None) -> str:
     
     return "\n".join(lines)
 
-def noshmem_link(source_query: str, target_query: str, relation: str = "related") -> str:
+def noshy_link(source_query: str, target_query: str, relation: str = "related") -> str:
     """Link two memories together by searching for them first.
     
     Args:
@@ -130,4 +130,4 @@ if __name__ == "__main__":
     p = sub.add_parser("recall")
     p.add_argument("query")
     p.add_argument("--project")
-    print(noshmem_recall(**{k:v for k,v in vars(parser.parse_args()).items() if k in ['query','project']}))
+    print(noshy_recall(**{k:v for k,v in vars(parser.parse_args()).items() if k in ['query','project']}))

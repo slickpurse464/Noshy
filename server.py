@@ -33,7 +33,7 @@ store: NoshyStore = None
 
 MCP_TOOLS = [
     {
-        "name": "noshmem_store_memory",
+        "name": "noshy_store_memory",
         "description": "Store a new episodic memory. Use this to remember facts, decisions, preferences, and experiences.",
         "inputSchema": {
             "type": "object",
@@ -49,7 +49,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "noshmem_store_memoir",
+        "name": "noshy_store_memoir",
         "description": "Store permanent knowledge — facts, documentation, reference material that doesn't expire.",
         "inputSchema": {
             "type": "object",
@@ -62,7 +62,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "noshmem_recall",
+        "name": "noshy_recall",
         "description": "Search and recall memories using keyword, semantic, or hybrid search.",
         "inputSchema": {
             "type": "object",
@@ -76,7 +76,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "noshmem_extract_session",
+        "name": "noshy_extract_session",
         "description": "Extract memories from a conversation transcript using LLM analysis.",
         "inputSchema": {
             "type": "object",
@@ -88,7 +88,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "noshmem_consolidate",
+        "name": "noshy_consolidate",
         "description": "Merge related memories on a topic into one consolidated entry.",
         "inputSchema": {
             "type": "object",
@@ -100,7 +100,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "noshmem_get_stats",
+        "name": "noshy_get_stats",
         "description": "Get memory store statistics.",
         "inputSchema": {
             "type": "object",
@@ -108,7 +108,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "noshmem_session_context",
+        "name": "noshy_session_context",
         "description": "Generate context for a new session — critical memories, recent decisions, active work, and preferences. Call this at the start of every session.",
         "inputSchema": {
             "type": "object",
@@ -121,7 +121,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "noshmem_decision_timeline",
+        "name": "noshy_decision_timeline",
         "description": "Show a chronological timeline of all decisions, fixes, and resolutions. Use to answer 'what did we decide about X?'",
         "inputSchema": {
             "type": "object",
@@ -132,7 +132,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "noshmem_detect_patterns",
+        "name": "noshy_detect_patterns",
         "description": "Find repeated solutions across sessions — candidates for creating reusable skills.",
         "inputSchema": {
             "type": "object",
@@ -162,7 +162,7 @@ def handle_tools_call(params: Dict) -> Dict:
     args = params.get("arguments", {})
 
     try:
-        if name == "noshmem_store_memory":
+        if name == "noshy_store_memory":
             mid = store.store_memory(
                 topic=args["topic"],
                 summary=args["summary"],
@@ -173,7 +173,7 @@ def handle_tools_call(params: Dict) -> Dict:
             )
             return {"content": [{"type": "text", "text": f"Memory stored: {mid}"}]}
 
-        elif name == "noshmem_store_memoir":
+        elif name == "noshy_store_memoir":
             mid = store.store_memoir(
                 title=args["title"],
                 content=args["content"],
@@ -181,7 +181,7 @@ def handle_tools_call(params: Dict) -> Dict:
             )
             return {"content": [{"type": "text", "text": f"Memoir stored: {mid}"}]}
 
-        elif name == "noshmem_recall":
+        elif name == "noshy_recall":
             mode = args.get("mode", "hybrid")
             query = args["query"]
             limit = args.get("limit", 15)
@@ -203,7 +203,7 @@ def handle_tools_call(params: Dict) -> Dict:
             )
             return {"content": [{"type": "text", "text": out}]}
 
-        elif name == "noshmem_extract_session":
+        elif name == "noshy_extract_session":
             facts = extract_facts(
                 transcript=args["transcript"],
             )
@@ -229,19 +229,19 @@ def handle_tools_call(params: Dict) -> Dict:
 
             return {"content": [{"type": "text", "text": f"Extracted and stored {count} memories."}]}
 
-        elif name == "noshmem_consolidate":
+        elif name == "noshy_consolidate":
             count = store.consolidate(
                 topic=args["topic"],
                 min_weight=args.get("min_weight", 0.3),
             )
             return {"content": [{"type": "text", "text": f"Consolidated {count} memories."}]}
 
-        elif name == "noshmem_get_stats":
+        elif name == "noshy_get_stats":
             stats = store.get_stats()
             lines = [f"{k}: {v}" for k, v in stats.items()]
             return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
-        elif name == "noshmem_session_context":
+        elif name == "noshy_session_context":
             ctx = session_context(
                 project=args.get("project"),
                 max_memories=args.get("max_memories", 10),
@@ -250,14 +250,14 @@ def handle_tools_call(params: Dict) -> Dict:
             )
             return {"content": [{"type": "text", "text": ctx}]}
 
-        elif name == "noshmem_decision_timeline":
+        elif name == "noshy_decision_timeline":
             tl = decision_timeline(
                 project=args.get("project"),
                 days=args.get("days", 30),
             )
             return {"content": [{"type": "text", "text": tl}]}
 
-        elif name == "noshmem_detect_patterns":
+        elif name == "noshy_detect_patterns":
             patterns = detect_patterns(
                 project=args.get("project"),
                 min_occurrences=args.get("min_occurrences", 3),

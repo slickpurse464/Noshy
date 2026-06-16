@@ -116,12 +116,12 @@ mcp_servers:
 
 | Tool | What it does |
 |------|-------------|
-| `noshmem_store_memory` | Remember a fact, decision, or preference |
-| `noshmem_store_memoir` | Store permanent knowledge (docs, reference) |
-| `noshmem_recall` | Search memories (keyword, semantic, hybrid) |
-| `noshmem_extract_session` | LLM-powered extraction from conversation transcripts |
-| `noshmem_consolidate` | Merge related memories on a topic |
-| `noshmem_get_stats` | Database overview |
+| `noshy_store_memory` | Remember a fact, decision, or preference |
+| `noshy_store_memoir` | Store permanent knowledge (docs, reference) |
+| `noshy_recall` | Search memories (keyword, semantic, hybrid) |
+| `noshy_extract_session` | LLM-powered extraction from conversation transcripts |
+| `noshy_consolidate` | Merge related memories on a topic |
+| `noshy_get_stats` | Database overview |
 
 ### HTTP API
 
@@ -129,12 +129,12 @@ mcp_servers:
 # Store
 curl -X POST http://127.0.0.1:8720/tools/call \
   -H 'Content-Type: application/json' \
-  -d '{"name":"noshmem_store_memory","arguments":{"topic":"my-topic","summary":"What to remember"}}'
+  -d '{"name":"noshy_store_memory","arguments":{"topic":"my-topic","summary":"What to remember"}}'
 
 # Recall
 curl -X POST http://127.0.0.1:8720/tools/call \
   -H 'Content-Type: application/json' \
-  -d '{"name":"noshmem_recall","arguments":{"query":"search keywords"}}'
+  -d '{"name":"noshy_recall","arguments":{"query":"search keywords"}}'
 
 # Stats
 curl http://127.0.0.1:8720/stats
