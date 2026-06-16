@@ -1,5 +1,5 @@
 """
-Aion MCP server — exposes memory operations via MCP protocol and HTTP API.
+NoshMem MCP server — exposes memory operations via MCP protocol and HTTP API.
 Compatible with Hermes Agent, Claude Code, and any MCP client.
 """
 import os
@@ -14,7 +14,7 @@ from typing import Optional, List, Dict, Any
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from store import AionStore
+from store import NoshMemStore
 from extractor import extract_facts, consolidate_memories
 from embed import auto_embedder
 from context import session_context, decision_timeline, detect_patterns, extract_preferences
@@ -26,14 +26,14 @@ logging.basicConfig(
 )
 log = logging.getLogger("aion.server")
 
-store: AionStore = None
+store: NoshMemStore = None
 
 
 # ──────────── MCP Protocol Handlers ────────────
 
 MCP_TOOLS = [
     {
-        "name": "aion_store_memory",
+        "name": "noshmem_store_memory",
         "description": "Store a new episodic memory. Use this to remember facts, decisions, preferences, and experiences.",
         "inputSchema": {
             "type": "object",
@@ -49,7 +49,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "aion_store_memoir",
+        "name": "noshmem_store_memoir",
         "description": "Store permanent knowledge — facts, documentation, reference material that doesn't expire.",
         "inputSchema": {
             "type": "object",
@@ -62,7 +62,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "aion_recall",
+        "name": "noshmem_recall",
         "description": "Search and recall memories using keyword, semantic, or hybrid search.",
         "inputSchema": {
             "type": "object",
@@ -76,7 +76,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "aion_extract_session",
+        "name": "noshmem_extract_session",
         "description": "Extract memories from a conversation transcript using LLM analysis.",
         "inputSchema": {
             "type": "object",
@@ -88,7 +88,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "aion_consolidate",
+        "name": "noshmem_consolidate",
         "description": "Merge related memories on a topic into one consolidated entry.",
         "inputSchema": {
             "type": "object",
@@ -100,7 +100,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "aion_get_stats",
+        "name": "noshmem_get_stats",
         "description": "Get memory store statistics.",
         "inputSchema": {
             "type": "object",
@@ -108,7 +108,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "aion_session_context",
+        "name": "noshmem_session_context",
         "description": "Generate context for a new session — critical memories, recent decisions, active work, and preferences. Call this at the start of every session.",
         "inputSchema": {
             "type": "object",
@@ -121,7 +121,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "aion_decision_timeline",
+        "name": "noshmem_decision_timeline",
         "description": "Show a chronological timeline of all decisions, fixes, and resolutions. Use to answer 'what did we decide about X?'",
         "inputSchema": {
             "type": "object",
@@ -132,7 +132,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "aion_detect_patterns",
+        "name": "noshmem_detect_patterns",
         "description": "Find repeated solutions across sessions — candidates for creating reusable skills.",
         "inputSchema": {
             "type": "object",
@@ -149,7 +149,7 @@ def handle_initialize(params: Dict) -> Dict:
     return {
         "protocolVersion": "2024-11-05",
         "capabilities": {"tools": {}},
-        "serverInfo": {"name": "aion", "version": "0.1.0"},
+        "serverInfo": {"name": "nosh-mem", "version": "0.1.0"},
     }
 
 
@@ -162,7 +162,7 @@ def handle_tools_call(params: Dict) -> Dict:
     args = params.get("arguments", {})
 
     try:
-        if name == "aion_store_memory":
+        if name == "noshmem_store_memory":
             mid = store.store_memory(
                 topic=args["topic"],
                 summary=args["summary"],
@@ -173,7 +173,7 @@ def handle_tools_call(params: Dict) -> Dict:
             )
             return {"content": [{"type": "text", "text": f"Memory stored: {mid}"}]}
 
-        elif name == "aion_store_memoir":
+        elif name == "noshmem_store_memoir":
             mid = store.store_memoir(
                 title=args["title"],
                 content=args["content"],
@@ -181,7 +181,7 @@ def handle_tools_call(params: Dict) -> Dict:
             )
             return {"content": [{"type": "text", "text": f"Memoir stored: {mid}"}]}
 
-        elif name == "aion_recall":
+        elif name == "noshmem_recall":
             mode = args.get("mode", "hybrid")
             query = args["query"]
             limit = args.get("limit", 15)
@@ -203,7 +203,7 @@ def handle_tools_call(params: Dict) -> Dict:
             )
             return {"content": [{"type": "text", "text": out}]}
 
-        elif name == "aion_extract_session":
+        elif name == "noshmem_extract_session":
             facts = extract_facts(
                 transcript=args["transcript"],
             )
@@ -229,19 +229,19 @@ def handle_tools_call(params: Dict) -> Dict:
 
             return {"content": [{"type": "text", "text": f"Extracted and stored {count} memories."}]}
 
-        elif name == "aion_consolidate":
+        elif name == "noshmem_consolidate":
             count = store.consolidate(
                 topic=args["topic"],
                 min_weight=args.get("min_weight", 0.3),
             )
             return {"content": [{"type": "text", "text": f"Consolidated {count} memories."}]}
 
-        elif name == "aion_get_stats":
+        elif name == "noshmem_get_stats":
             stats = store.get_stats()
             lines = [f"{k}: {v}" for k, v in stats.items()]
             return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
-        elif name == "aion_session_context":
+        elif name == "noshmem_session_context":
             ctx = session_context(
                 project=args.get("project"),
                 max_memories=args.get("max_memories", 10),
@@ -250,14 +250,14 @@ def handle_tools_call(params: Dict) -> Dict:
             )
             return {"content": [{"type": "text", "text": ctx}]}
 
-        elif name == "aion_decision_timeline":
+        elif name == "noshmem_decision_timeline":
             tl = decision_timeline(
                 project=args.get("project"),
                 days=args.get("days", 30),
             )
             return {"content": [{"type": "text", "text": tl}]}
 
-        elif name == "aion_detect_patterns":
+        elif name == "noshmem_detect_patterns":
             patterns = detect_patterns(
                 project=args.get("project"),
                 min_occurrences=args.get("min_occurrences", 3),
@@ -281,11 +281,11 @@ def handle_tools_call(params: Dict) -> Dict:
 # ──────────── MCP stdio mode ────────────
 
 def run_stdio(db_path: str = None):
-    """Run Aion as an MCP stdio server."""
+    """Run NoshMem as an MCP stdio server."""
     global store
     embedder = auto_embedder()
-    store = AionStore(db_path=db_path, embedder=embedder)
-    log.info(f"Aion MCP stdio server ready (embed: {type(embedder).__name__})")
+    store = NoshMemStore(db_path=db_path, embedder=embedder)
+    log.info(f"NoshMem MCP stdio server ready (embed: {type(embedder).__name__})")
 
     import sys
     for line in sys.stdin:
@@ -330,10 +330,10 @@ def run_stdio(db_path: str = None):
 # ──────────── HTTP API mode ────────────
 
 def run_http(host: str = "127.0.0.1", port: int = 8720, db_path: str = None):
-    """Run Aion as an HTTP API server."""
+    """Run NoshMem as an HTTP API server."""
     global store
     embedder = auto_embedder()
-    store = AionStore(db_path=db_path, embedder=embedder)
+    store = NoshMemStore(db_path=db_path, embedder=embedder)
 
     from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -380,14 +380,14 @@ def run_http(host: str = "127.0.0.1", port: int = 8720, db_path: str = None):
             log.info(f"HTTP {args[0]} {args[1]} {args[2]}")
 
     server = HTTPServer((host, port), Handler)
-    log.info(f"Aion HTTP API running on http://{host}:{port}")
+    log.info(f"NoshMem HTTP API running on http://{host}:{port}")
     server.serve_forever()
 
 
 # ──────────── CLI ────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Aion — MCP-native memory for AI agents")
+    parser = argparse.ArgumentParser(description="NoshMem — MCP-native memory for AI agents")
     parser.add_argument("--db", help="Database path", default=None)
     sub = parser.add_subparsers(dest="command")
 
@@ -425,7 +425,7 @@ def main():
 
     global store
     db = getattr(args, 'db', None)
-    store = AionStore(db_path=db)
+    store = NoshMemStore(db_path=db)
 
     if args.command == "mcp":
         run_stdio(db_path=db)

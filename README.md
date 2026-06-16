@@ -1,11 +1,11 @@
-# Aion — Persistent Memory for AI Agents
+# NoshMem — Persistent Memory for AI Agents
 
 **ICM-compatible. MCP-native. Works with any LLM.**
 
-Aion gives your AI agent real memory — not note-taking, not context stuffing, not a vector database you have to manage. Store facts, search across sessions, build knowledge graphs. It's what ICM wanted to be, re-built to work everywhere.
+NoshMem gives your AI agent real memory — not note-taking, not context stuffing, not a vector database you have to manage. Store facts, search across sessions, build knowledge graphs. It's what ICM wanted to be, re-built to work everywhere.
 
 ```
-                     Aion
+                     NoshMem
           ┌───────────┼───────────┐
           │   MEMORIES            │   MEMOIRS
           │   (time-bound)        │   (permanent)
@@ -28,7 +28,7 @@ Aion gives your AI agent real memory — not note-taking, not context stuffing, 
           └────────────────────┘
 ```
 
-## Why Aion
+## Why NoshMem
 
 - **LLM-powered extraction** — not regex. Uses any OpenAI-compatible API to extract structured facts from transcripts
 - **Hybrid search** — keyword + semantic + graph recall in one query
@@ -42,13 +42,13 @@ Aion gives your AI agent real memory — not note-taking, not context stuffing, 
 
 ```bash
 # Install
-curl -fsSL https://raw.githubusercontent.com/noshkoto/aion/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/noshkoto/NoshMem/main/install.sh | sh
 
 # Start HTTP server
-cd ~/.aion/src && python3 server.py http
+cd ~/.nosh-mem/src && python3 server.py http
 
 # Or MCP stdio mode
-cd ~/.aion/src && python3 server.py mcp
+cd ~/.nosh-mem/src && python3 server.py mcp
 ```
 
 ## Usage
@@ -77,11 +77,11 @@ Add to your MCP client config:
 ```json
 {
   "mcpServers": {
-    "aion": {
+    "nosh-mem": {
       "command": "python3",
-      "args": ["/path/to/aion/server.py", "mcp"],
+      "args": ["/path/to/nosh-mem/server.py", "mcp"],
       "env": {
-        "AION_EMBED_PROVIDER": "openai",
+        "NOSHMEM_EMBED_PROVIDER": "openai",
         "OPENAI_API_KEY": "sk-..."
       }
     }
@@ -94,9 +94,9 @@ Add to your MCP client config:
 mcp_servers:
   aion:
     command: "python3"
-    args: ["/path/to/aion/server.py", "mcp"]
+    args: ["/path/to/nosh-mem/server.py", "mcp"]
     env:
-      AION_EMBED_PROVIDER: "openai"
+      NOSHMEM_EMBED_PROVIDER: "openai"
       OPENAI_API_KEY: "sk-..."
 ```
 
@@ -104,9 +104,9 @@ mcp_servers:
 ```json
 {
   "mcpServers": {
-    "aion": {
+    "nosh-mem": {
       "command": "python3",
-      "args": ["/path/to/aion/server.py", "mcp"]
+      "args": ["/path/to/nosh-mem/server.py", "mcp"]
     }
   }
 }
@@ -116,12 +116,12 @@ mcp_servers:
 
 | Tool | What it does |
 |------|-------------|
-| `aion_store_memory` | Remember a fact, decision, or preference |
-| `aion_store_memoir` | Store permanent knowledge (docs, reference) |
-| `aion_recall` | Search memories (keyword, semantic, hybrid) |
-| `aion_extract_session` | LLM-powered extraction from conversation transcripts |
-| `aion_consolidate` | Merge related memories on a topic |
-| `aion_get_stats` | Database overview |
+| `noshmem_store_memory` | Remember a fact, decision, or preference |
+| `noshmem_store_memoir` | Store permanent knowledge (docs, reference) |
+| `noshmem_recall` | Search memories (keyword, semantic, hybrid) |
+| `noshmem_extract_session` | LLM-powered extraction from conversation transcripts |
+| `noshmem_consolidate` | Merge related memories on a topic |
+| `noshmem_get_stats` | Database overview |
 
 ### HTTP API
 
@@ -129,12 +129,12 @@ mcp_servers:
 # Store
 curl -X POST http://127.0.0.1:8720/tools/call \
   -H 'Content-Type: application/json' \
-  -d '{"name":"aion_store_memory","arguments":{"topic":"my-topic","summary":"What to remember"}}'
+  -d '{"name":"noshmem_store_memory","arguments":{"topic":"my-topic","summary":"What to remember"}}'
 
 # Recall
 curl -X POST http://127.0.0.1:8720/tools/call \
   -H 'Content-Type: application/json' \
-  -d '{"name":"aion_recall","arguments":{"query":"search keywords"}}'
+  -d '{"name":"noshmem_recall","arguments":{"query":"search keywords"}}'
 
 # Stats
 curl http://127.0.0.1:8720/stats
@@ -142,12 +142,12 @@ curl http://127.0.0.1:8720/stats
 
 ## Embedding Providers
 
-Aion auto-detects the best available embedding provider. Set `AION_EMBED_PROVIDER` to override:
+NoshMem auto-detects the best available embedding provider. Set `NOSHMEM_EMBED_PROVIDER` to override:
 
 | Provider | Env Var | API Key | Quality |
 |----------|---------|---------|---------|
-| OpenAI | `AION_EMBED_PROVIDER=openai` | `OPENAI_API_KEY` | Best |
-| fastembed | `AION_EMBED_PROVIDER=fastembed` | None (local) | Good |
+| OpenAI | `NOSHMEM_EMBED_PROVIDER=openai` | `OPENAI_API_KEY` | Best |
+| fastembed | `NOSHMEM_EMBED_PROVIDER=fastembed` | None (local) | Good |
 | Hermes API | auto-detected | `API_SERVER_KEY` | Varies |
 | None | No embedding | None | Keyword only |
 
@@ -161,7 +161,7 @@ pip install fastembed
 python3 server.py http
 
 # Keyword-only (no embeddings)
-AION_EMBED_PROVIDER=none python3 server.py http
+NOSHMEM_EMBED_PROVIDER=none python3 server.py http
 ```
 
 ## Platform Setup
@@ -171,8 +171,8 @@ AION_EMBED_PROVIDER=none python3 server.py http
 # Install Python 3.10+ if needed
 brew install python@3.12
 
-# Install Aion
-curl -fsSL https://raw.githubusercontent.com/noshkoto/aion/main/install.sh | sh
+# Install NoshMem
+curl -fsSL https://raw.githubusercontent.com/noshkoto/NoshMem/main/install.sh | sh
 
 # Optional: local embeddings
 pip3 install fastembed
@@ -183,15 +183,15 @@ pip3 install fastembed
 sudo apt install python3   # Debian/Ubuntu
 sudo dnf install python3    # Fedora
 
-curl -fsSL https://raw.githubusercontent.com/noshkoto/aion/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/noshkoto/NoshMem/main/install.sh | sh
 ```
 
 ### Windows
 ```powershell
 # Install Python from python.org (check "Add to PATH")
 
-# Download Aion
-Invoke-WebRequest -Uri https://github.com/noshkoto/aion/archive/refs/heads/main.zip -OutFile aion.zip
+# Download NoshMem
+Invoke-WebRequest -Uri https://github.com/noshkoto/NoshMem/archive/refs/heads/main.zip -OutFile aion.zip
 Expand-Archive aion.zip -DestinationPath $env:USERPROFILE\.aion
 Rename-Item $env:USERPROFILE\.aion\aion-main $env:USERPROFILE\.aion\src
 
@@ -205,27 +205,27 @@ docker run -d --name aion \
   -p 8720:8720 \
   -v aion-data:/root/.aion \
   -e OPENAI_API_KEY=sk-... \
-  ghcr.io/noshkoto/aion:latest
+  ghcr.io/noshkoto/NoshMem:latest
 ```
 
 ## Configuration
 
 | Env Variable | Default | Description |
 |-------------|---------|-------------|
-| `AION_DB` | `~/.aion/memories.db` | Database path |
-| `AION_EMBED_PROVIDER` | auto | openai, fastembed, hermes, or none |
-| `AION_EMBED_MODEL` | provider default | Embedding model name |
-| `AION_EMBED_API_BASE` | provider default | Embedding API URL |
-| `AION_EMBED_API_KEY` | `OPENAI_API_KEY` | Embedding API key |
-| `AION_API_BASE` | `http://127.0.0.1:8642/v1` | LLM API for extraction |
-| `AION_API_KEY` | `API_SERVER_KEY` | LLM API key |
-| `AION_MODEL` | `hermes-agent` | Model for extraction |
+| `NOSHMEM_DB` | `~/.nosh-mem/memories.db` | Database path |
+| `NOSHMEM_EMBED_PROVIDER` | auto | openai, fastembed, hermes, or none |
+| `NOSHMEM_EMBED_MODEL` | provider default | Embedding model name |
+| `NOSHMEM_EMBED_API_BASE` | provider default | Embedding API URL |
+| `NOSHMEM_EMBED_API_KEY` | `OPENAI_API_KEY` | Embedding API key |
+| `NOSHMEM_API_BASE` | `http://127.0.0.1:8642/v1` | LLM API for extraction |
+| `NOSHMEM_API_KEY` | `API_SERVER_KEY` | LLM API key |
+| `NOSHMEM_MODEL` | `hermes-agent` | Model for extraction |
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────┐
-│              Aion MCP Server            │
+│              NoshMem MCP Server            │
 │  ┌──────────┐ ┌────────┐ ┌───────────┐  │
 │  │Extractor │ │ Store  │ │  Embedder │  │
 │  │(LLM API) │ │(SQLite)│ │(OpenAI/   │  │
@@ -261,7 +261,7 @@ The schema is compatible — memories, memoirs, concepts, and metadata all trans
 
 ## Comparison
 
-| | ICM | Aion |
+| | ICM | NoshMem |
 |---|-----|------|
 | Extraction | Rule-based regex | LLM-powered (any provider) |
 | Search | Keyword + vector | Keyword + semantic + graph |

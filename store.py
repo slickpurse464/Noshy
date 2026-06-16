@@ -1,5 +1,5 @@
 """
-Aion — persistent memory for AI agents.
+NoshMem — persistent memory for AI agents.
 ICM-compatible schema with improvements:
 - LLM-powered fact extraction (vs rule-based)
 - Graph relationship tracking
@@ -41,12 +41,12 @@ SELECT_CONCEPT_COLS = """
 """
 
 
-class AionStore:
+class NoshMemStore:
     """Core memory store. Drop-in compatible with ICM's SQLite schema."""
 
     def __init__(self, db_path: str = None, embedding_dims: int = DEFAULT_EMBEDDING_DIMS, embedder=None):
         if db_path is None:
-            db_path = os.path.expanduser("~/.aion/memories.db")
+            db_path = os.path.expanduser("~/.nosh-mem/memories.db")
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.embedding_dims = embedding_dims
@@ -56,7 +56,7 @@ class AionStore:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         self._init_schema()
-        log.info(f"Aion store ready: {self.db_path}")
+        log.info(f"NoshMem store ready: {self.db_path}")
 
     def _init_schema(self):
         conn = self.conn
@@ -77,7 +77,7 @@ class AionStore:
             source TEXT DEFAULT 'aion',
             project TEXT DEFAULT 'default',
             expires_at TEXT,
-            -- Graph fields (Aion extension)
+            -- Graph fields (NoshMem extension)
             parent_id TEXT,
             merged_from TEXT,
             consolidation_count INTEGER DEFAULT 0
@@ -116,7 +116,7 @@ class AionStore:
             FOREIGN KEY (concept_id) REFERENCES concepts(id) ON DELETE CASCADE
         );
 
-        -- Graph edges between memories (Aion extension)
+        -- Graph edges between memories (NoshMem extension)
         CREATE TABLE IF NOT EXISTS memory_edges (
             source_id TEXT NOT NULL,
             target_id TEXT NOT NULL,
@@ -195,7 +195,7 @@ class AionStore:
         keywords: List[str] = None,
         embedding: bytes = None,
         importance: str = "medium",
-        source: str = "aion",
+        source: str = "nosh-mem",
         project: str = "default",
         parent_id: str = None,
         auto_embed: bool = True,
@@ -247,7 +247,7 @@ class AionStore:
         content: str,
         *,
         embedding: bytes = None,
-        source: str = "aion",
+        source: str = "nosh-mem",
         project: str = "default",
     ) -> str:
         """Store permanent knowledge (memoir)."""

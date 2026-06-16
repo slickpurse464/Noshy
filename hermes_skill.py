@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Aion Hermes Skill — memory operations as native Hermes Agent tools.
+NoshMem Hermes Skill — memory operations as native Hermes Agent tools.
 Drop this into your Hermes workflow for persistent cross-session memory.
 """
 import os
@@ -8,22 +8,22 @@ import sys
 import json
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from store import AionStore
+from store import NoshMemStore
 
 # Singleton store
-_store: AionStore = None
+_store: NoshMemStore = None
 
 def get_store():
     global _store
     if _store is None:
-        db_path = os.environ.get("AION_DB", os.path.expanduser("~/.aion/memories.db"))
-        _store = AionStore(db_path=db_path)
+        db_path = os.environ.get("NOSHMEM_DB", os.path.expanduser("~/.nosh-mem/memories.db"))
+        _store = NoshMemStore(db_path=db_path)
     return _store
 
 
 # ──────────── Tool Functions (called by Hermes) ────────────
 
-def aion_remember(topic: str, summary: str, *, keywords: list = None, importance: str = "medium", project: str = "default") -> str:
+def noshmem_remember(topic: str, summary: str, *, keywords: list = None, importance: str = "medium", project: str = "default") -> str:
     """Store a memory. Use this to remember ANYTHING that matters — decisions, facts, bugs, fixes, user preferences, project state.
     
     Args:
@@ -37,7 +37,7 @@ def aion_remember(topic: str, summary: str, *, keywords: list = None, importance
     mid = store.store_memory(topic=topic, summary=summary, keywords=keywords, importance=importance, project=project)
     return f"Memory stored: {mid}"
 
-def aion_recall(query: str, *, project: str = None, limit: int = 15) -> str:
+def noshmem_recall(query: str, *, project: str = None, limit: int = 15) -> str:
     """Search and recall memories. Use this before starting any task or when you need context.
     
     Args:
@@ -59,7 +59,7 @@ def aion_recall(query: str, *, project: str = None, limit: int = 15) -> str:
         lines.append(f"{i}. [{imp}] {topic}" + (f" [{project}]" if project else "") + f"\n   {summary}")
     return "\n\n".join(lines)
 
-def aion_learn(title: str, content: str, *, project: str = "default") -> str:
+def noshmem_learn(title: str, content: str, *, project: str = "default") -> str:
     """Store permanent knowledge — documentation, reference material, facts that don't expire.
     
     Args:
@@ -71,7 +71,7 @@ def aion_learn(title: str, content: str, *, project: str = "default") -> str:
     mid = store.store_memoir(title=title, content=content, project=project)
     return f"Memoir stored: {mid}"
 
-def aion_summary(project: str = None) -> str:
+def noshmem_summary(project: str = None) -> str:
     """Get a summary of what's in memory. Call this at the start of a session to know what happened before.
     
     Args:
@@ -94,14 +94,14 @@ def aion_summary(project: str = None) -> str:
     
     rows = store.conn.execute(query, params).fetchall()
     
-    lines = [f"Aion memory — {stats['memory_count']} memories, {stats['memoir_count']} memoirs, {stats['concept_count']} concepts"]
+    lines = [f"NoshMem memory — {stats['memory_count']} memories, {stats['memoir_count']} memoirs, {stats['concept_count']} concepts"]
     lines.append("--- Recent memories ---")
     for r in rows:
         lines.append(f"[{r['importance'].upper()}] {r['topic']}: {r['summary']}")
     
     return "\n".join(lines)
 
-def aion_link(source_query: str, target_query: str, relation: str = "related") -> str:
+def noshmem_link(source_query: str, target_query: str, relation: str = "related") -> str:
     """Link two memories together by searching for them first.
     
     Args:
@@ -124,10 +124,10 @@ def aion_link(source_query: str, target_query: str, relation: str = "related") -
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Aion Hermes Skill CLI")
+    parser = argparse.ArgumentParser(description="NoshMem Hermes Skill CLI")
     sub = parser.add_subparsers(dest="cmd")
     
     p = sub.add_parser("recall")
     p.add_argument("query")
     p.add_argument("--project")
-    print(aion_recall(**{k:v for k,v in vars(parser.parse_args()).items() if k in ['query','project']}))
+    print(noshmem_recall(**{k:v for k,v in vars(parser.parse_args()).items() if k in ['query','project']}))
