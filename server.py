@@ -241,7 +241,7 @@ def handle_initialize(params: Dict) -> Dict:
     return {
         "protocolVersion": "2024-11-05",
         "capabilities": {"tools": {}},
-        "serverInfo": {"name": "noshy", "version": "0.2.1"},
+        "serverInfo": {"name": "noshy", "version": "0.2.2"},
     }
 
 
@@ -683,10 +683,52 @@ header{position:sticky;top:0;z-index:50;height:62px;
   animation:pulse-dot 2.6s ease-in-out infinite;}
 @keyframes pulse-dot{0%,100%{box-shadow:0 0 5px var(--med);}
   50%{box-shadow:0 0 13px var(--med),0 0 4px var(--med);}}
-.hdr-sel{background:var(--surface);border:1px solid var(--border);
-  border-radius:var(--rs);padding:7px 10px;color:var(--text);font-size:13px;
-  cursor:pointer;transition:border-color var(--tr);max-width:140px;}
-.hdr-sel:hover,.hdr-sel:focus{border-color:var(--border-h);}
+/* ── PROJECT PICKER (custom dropdown) ── */
+.proj-picker{position:relative;}
+.proj-trigger{display:flex;align-items:center;gap:8px;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--rs);padding:7px 11px;
+  color:var(--text);font-size:13px;font-weight:500;cursor:pointer;
+  transition:all var(--tr);min-width:140px;max-width:200px;
+  font-family:inherit;}
+.proj-trigger:hover{background:var(--surface2);border-color:var(--border-h);}
+.proj-trigger .lbl{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;}
+.proj-trigger .chev{width:11px;height:11px;transition:transform .2s ease;
+  color:var(--muted);flex-shrink:0;}
+.proj-picker.open .proj-trigger{border-color:var(--border-h);color:var(--accent);
+  background:var(--surface2);box-shadow:var(--glow);}
+.proj-picker.open .chev{transform:rotate(180deg);color:var(--accent);}
+.proj-menu{position:absolute;top:calc(100% + 6px);right:0;
+  min-width:240px;max-height:360px;overflow-y:auto;
+  background:rgba(15,17,25,.94);backdrop-filter:var(--blur);
+  -webkit-backdrop-filter:var(--blur);
+  border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);
+  padding:6px;z-index:80;opacity:0;transform:translateY(-6px) scale(.98);
+  pointer-events:none;transform-origin:top right;
+  transition:opacity .16s ease,transform .16s ease;}
+[data-theme="light"] .proj-menu{background:rgba(255,255,255,.97);}
+.proj-picker.open .proj-menu{opacity:1;transform:translateY(0) scale(1);
+  pointer-events:auto;}
+.proj-menu::-webkit-scrollbar{width:8px;}
+.proj-menu::-webkit-scrollbar-track{background:transparent;}
+.proj-menu::-webkit-scrollbar-thumb{background:var(--dim);border-radius:8px;}
+.proj-opt{display:flex;align-items:center;gap:10px;padding:9px 12px;
+  border-radius:8px;cursor:pointer;font-size:13px;color:var(--text);
+  transition:background .12s;position:relative;}
+.proj-opt:hover{background:var(--surface2);}
+.proj-opt.sel{background:linear-gradient(135deg,rgba(99,102,241,.16) 0%,rgba(139,92,246,.16) 100%);
+  color:var(--accent);font-weight:600;}
+.proj-opt.sel::before{content:'';position:absolute;left:4px;top:50%;
+  transform:translateY(-50%);width:3px;height:18px;border-radius:2px;
+  background:var(--grad);box-shadow:0 0 8px rgba(99,102,241,.5);}
+.proj-opt .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  padding-left:6px;}
+.proj-opt .ct{font-size:11px;color:var(--muted);background:var(--surface);
+  border-radius:999px;padding:1px 8px;font-weight:600;letter-spacing:.02em;
+  flex-shrink:0;}
+.proj-opt.sel .ct{background:rgba(99,102,241,.22);color:var(--accent);}
+.proj-menu-divider{height:1px;background:var(--border);margin:5px 8px;}
+.proj-menu-empty{padding:14px 12px;text-align:center;color:var(--muted);font-size:12px;}
 .hdr-btn{display:flex;align-items:center;gap:6px;background:var(--surface);
   border:1px solid var(--border);border-radius:var(--rs);padding:7px 12px;
   color:var(--text);font-size:13px;transition:all var(--tr);}
@@ -905,9 +947,18 @@ main{max-width:1060px;margin:0 auto;width:100%;padding:26px 22px 64px;}
   </div>
   <div class="hgap"></div>
   <div class="status-pill"><span class="sdot"></span><span>Live</span></div>
-  <select class="hdr-sel" id="projectFilter" aria-label="Filter by project">
-    <option value="">All projects</option>
-  </select>
+  <div class="proj-picker" id="projPicker">
+    <button class="proj-trigger" id="projTrigger" type="button"
+            aria-haspopup="listbox" aria-expanded="false" aria-label="Filter by project">
+      <span class="lbl">All projects</span>
+      <svg class="chev" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+           stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 4.5l3 3 3-3"/>
+      </svg>
+    </button>
+    <div class="proj-menu" id="projMenu" role="listbox"></div>
+  </div>
+  <input type="hidden" id="projectFilter" value="">
   <button class="hdr-btn" id="clusterBtn">
     <svg viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5">
       <circle cx="4" cy="4" r="2"/><circle cx="11" cy="4" r="2"/>
@@ -1099,15 +1150,52 @@ async function loadStats(){
   }catch(e){console.error('stats',e);}
 }
 
-/* ── projects ─────────────────────────────────────────── */
+/* ── project picker (custom dropdown) ─────────────────── */
+let _projects=[];
+const projPicker=$('projPicker'),projTrigger=$('projTrigger'),projMenu=$('projMenu');
+function openProj(){projPicker.classList.add('open');projTrigger.setAttribute('aria-expanded','true');}
+function closeProj(){projPicker.classList.remove('open');projTrigger.setAttribute('aria-expanded','false');}
+projTrigger.addEventListener('click',e=>{
+  e.stopPropagation();
+  projPicker.classList.contains('open')?closeProj():openProj();
+});
+document.addEventListener('click',e=>{if(!projPicker.contains(e.target))closeProj();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeProj();});
+
+function renderProjMenu(){
+  const cur=$('projectFilter').value;
+  const total=_projects.reduce((s,p)=>s+(p.memory_count||0),0);
+  const items=[{v:'',n:'All projects',c:total}]
+    .concat(_projects.map(p=>({v:p.project,n:p.project,c:p.memory_count})));
+  if(!_projects.length){
+    projMenu.innerHTML='<div class="proj-menu-empty">No projects yet</div>';
+    return;
+  }
+  projMenu.innerHTML=items.map((o,i)=>{
+    const sel=o.v===cur?' sel':'';
+    const div=i===1?'<div class="proj-menu-divider"></div>':'';
+    return div+`<div class="proj-opt${sel}" data-v="${esc(o.v)}" role="option">`+
+      `<span class="nm">${esc(o.n)}</span>`+
+      `<span class="ct">${o.c||0}</span></div>`;
+  }).join('');
+  projMenu.querySelectorAll('.proj-opt').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const v=el.dataset.v;
+      $('projectFilter').value=v;
+      projTrigger.querySelector('.lbl').textContent=el.querySelector('.nm').textContent;
+      projMenu.querySelectorAll('.proj-opt').forEach(o=>o.classList.remove('sel'));
+      el.classList.add('sel');
+      closeProj();
+      $('q').value?search():loadRecent();
+    });
+  });
+}
+
 async function loadProjects(){
   try{
     const r=await(await fetch('/projects')).json();
-    const sel=$('projectFilter'),cur=sel.value;
-    sel.innerHTML='<option value="">All projects</option>'+
-      (r.projects||[]).map(p=>
-        `<option value="${esc(p.project)}">${esc(p.project)} (${p.memory_count})</option>`).join('');
-    if(cur)sel.value=cur;
+    _projects=r.projects||[];
+    renderProjMenu();
   }catch(_){}
 }
 
@@ -1204,7 +1292,12 @@ async function search(){
   try{const r=await(await fetch('/memories?'+qp({q}))).json();render(r.memories||[]);}
   catch(_){$('list').innerHTML='<div class="empty-state"><p>Search failed</p></div>';}
 }
-function clearSearch(){$('q').value='';$('projectFilter').value='';loadRecent();}
+function clearSearch(){
+  $('q').value='';$('projectFilter').value='';
+  projTrigger.querySelector('.lbl').textContent='All projects';
+  renderProjMenu();
+  loadRecent();
+}
 
 /* ── clusters ─────────────────────────────────────── */
 async function openClusters(){
@@ -1261,7 +1354,6 @@ $('q').addEventListener('keydown',e=>{
   if(e.key==='Enter')search();
   if(e.key==='Escape')clearSearch();
 });
-$('projectFilter').addEventListener('change',()=>$('q').value?search():loadRecent());
 $('clusterBtn').addEventListener('click',openClusters);
 
 /* ── boot ─────────────────────────────────────────── */
