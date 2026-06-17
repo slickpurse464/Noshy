@@ -278,7 +278,7 @@ def consolidate_memories(memories: List[Dict], *, api_base: str = None, api_key:
             try:
                 return json.loads(match.group())
             except json.JSONDecodeError:
-                pass
+                log.warning("JSON extraction fallback also failed to parse")
     return None
 
 

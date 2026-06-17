@@ -166,8 +166,8 @@ def remember(
                             project=project,
                             ttl_seconds=ttl_seconds,
                         )
-                    except Exception:
-                        pass
+                    except Exception as store_err:
+                        log.warning(f"@noshy.remember failed to store exception for {fn.__qualname__}: {store_err}")
                 raise
 
             dt = (time.perf_counter() - t0) * 1000

@@ -1003,8 +1003,8 @@ def run_http(host: str = "127.0.0.1", port: int = 8720, db_path: str = None):
                 path = parsed.path
                 qs = parse_qs(parsed.query)
 
-                # Public paths bypass auth; everything else requires it when configured
-                if path not in ("/", "/dashboard", "/health") and not self._require_auth():
+                # Only /health is public; dashboard and all API routes require auth when configured
+                if path != "/health" and not self._require_auth():
                     return
 
                 if path in ("/", "/dashboard"):

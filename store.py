@@ -265,6 +265,14 @@ class NoshyStore:
                 log.debug(f"predict_importance failed: {e}")
                 importance = "medium"
 
+        # Input validation — prevent empty/None from corrupting the store
+        if not topic or not topic.strip():
+            raise ValueError("topic must not be empty")
+        if not summary or not summary.strip():
+            raise ValueError("summary must not be empty")
+        topic = topic.strip()
+        summary = summary.strip()
+
         now = _utcnow_iso()
         memory_id = _ulid()
         kw_str = ",".join(keywords) if keywords else None
@@ -321,6 +329,12 @@ class NoshyStore:
         auto_embed: bool = True,
     ) -> str:
         """Store permanent knowledge (memoir)."""
+        if not title or not title.strip():
+            raise ValueError("title must not be empty")
+        if not content or not content.strip():
+            raise ValueError("content must not be empty")
+        title = title.strip()
+        content = content.strip()
         now = _utcnow_iso()
         memoir_id = _ulid()
         content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
@@ -577,7 +591,7 @@ class NoshyStore:
         Returns the number of memories removed.
         """
         rows = self.conn.execute("""
-        SELECT * FROM memories WHERE topic = ? AND weight >= ? ORDER BY created_at
+        SELECT * FROM memories WHERE topic = ? AND weight >= ? ORDER BY created_at LIMIT 500
         """, (topic, min_weight)).fetchall()
         if len(rows) < 2:
             return 0
@@ -773,7 +787,7 @@ class NoshyStore:
             "ELSE ? END",
             (min(decay_rate + 0.04, 0.999), min(decay_rate + 0.02, 0.999), decay_rate),
         )
-        cur = self.conn.execute("SELECT id FROM memories WHERE weight < 0.1")
+        cur = self.conn.execute("SELECT id FROM memories WHERE weight < 0.1 LIMIT 10000")
         dead_ids = [r["id"] for r in cur.fetchall()]
         self.conn.execute("DELETE FROM memories WHERE weight < 0.1")
         self._drop_vectors(dead_ids)
@@ -799,7 +813,7 @@ class NoshyStore:
             if datetime.now(timezone.utc) - last_dt < timedelta(hours=interval_hours):
                 return False
         except ValueError:
-            pass
+            log.warning(f"Corrupt last_decay metadata: {last!r} — running decay now")
         self.decay_weights(decay_rate=decay_rate)
         return True
 
@@ -847,7 +861,7 @@ class NoshyStore:
             raise ValueError("refusing to delete with empty / wildcard project")
         mem_ids = [
             r["id"] for r in self.conn.execute(
-                "SELECT id FROM memories WHERE project = ?", (project,)
+                "SELECT id FROM memories WHERE project = ? LIMIT 10000", (project,)
             ).fetchall()
         ]
         mem_count = len(mem_ids)
@@ -867,7 +881,7 @@ class NoshyStore:
         """Delete memories whose expires_at has passed. Returns count removed."""
         now = _utcnow_iso()
         cur = self.conn.execute(
-            "SELECT id FROM memories WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            "SELECT id FROM memories WHERE expires_at IS NOT NULL AND expires_at <= ? LIMIT 10000",
             (now,),
         )
         ids = [r["id"] for r in cur.fetchall()]
@@ -889,7 +903,7 @@ class NoshyStore:
 
     def delete_by_topic(self, topic: str, project: str = None) -> int:
         """Delete all memories matching a topic (optionally scoped to a project)."""
-        query = "SELECT id FROM memories WHERE topic = ?"
+        query = "SELECT id FROM memories WHERE topic = ? LIMIT 10000"
         params: List[Any] = [topic]
         if project:
             query += " AND project = ?"
@@ -943,7 +957,7 @@ class NoshyStore:
         """Export all data for backup or migration."""
         tables = {}
         for table in ["memories", "memoirs", "concepts", "concept_links", "memory_edges", "sessions", "feedback"]:
-            rows = self.conn.execute(f"SELECT * FROM {table}").fetchall()
+            rows = self.conn.execute(f"SELECT * FROM {table} LIMIT 50000").fetchall()
             tables[table] = [dict(r) for r in rows]
         return tables
 
@@ -1039,8 +1053,8 @@ class NoshyStore:
                 "INSERT OR REPLACE INTO vec_memories (memory_id, embedding) VALUES (?, ?)",
                 (memory_id, embedding)
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning(f"Vector store failed for {memory_id}: {e}")
 
     def _drop_vectors(self, memory_ids: List[str]):
         """Remove vec0 rows for deleted memories (no-op if vec not enabled)."""
@@ -1052,8 +1066,8 @@ class NoshyStore:
                 f"DELETE FROM vec_memories WHERE memory_id IN ({placeholders})",
                 list(memory_ids),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning(f"Vector delete failed for {len(memory_ids)} ids: {e}")
 
     def _touch(self, memory_ids: List[str]):
         if not memory_ids:

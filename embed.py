@@ -139,15 +139,15 @@ def auto_embedder() -> Embedder:
         urllib.request.urlopen(req, timeout=3)
         return OpenAIEmbedder(api_base="http://127.0.0.1:8642/v1",
                             api_key=os.environ.get("API_SERVER_KEY", ""))
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"Hermes API embedder detection failed: {e}")
 
     # 4. Try fastembed (local, no API key)
     try:
         import fastembed
         return FastembedEmbedder()
     except ImportError:
-        pass
+        log.debug("fastembed not installed — falling back to keyword-only search")
 
     # 5. Use Hermes as a last resort
     return HermesEmbedder()
