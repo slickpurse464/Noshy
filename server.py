@@ -890,9 +890,9 @@ setInterval(loadProjects, 30000);
 # ──────────── HTTP API mode ────────────
 
 def run_http(host: str = "127.0.0.1", port: int = 8720, db_path: str = None):
-    """Run Noshy as an HTTP API server."""
+    """Run Noshy as an HTTP API server with graceful shutdown."""
     global store
-    import hmac
+    import hmac, signal
     embedder = auto_embedder()
     store = NoshyStore(db_path=db_path, embedder=embedder)
 
@@ -1014,6 +1014,8 @@ def run_http(host: str = "127.0.0.1", port: int = 8720, db_path: str = None):
                 elif path == "/memories":
                     limit = int(qs.get("limit", ["25"])[0])
                     limit = max(1, min(limit, 200))
+                    page = int(qs.get("page", ["1"])[0])
+                    offset = max(0, (page - 1) * limit)
                     project = qs.get("project", [None])[0]
                     query = qs.get("q", [""])[0].strip()
                     if query:
@@ -1035,8 +1037,9 @@ def run_http(host: str = "127.0.0.1", port: int = 8720, db_path: str = None):
                         if project:
                             sql += " AND project = ?"
                             params.append(project)
-                        sql += " ORDER BY created_at DESC LIMIT ?"
+                        sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
                         params.append(limit)
+                        params.append(offset)
                         rows = [dict(r) for r in store.conn.execute(sql, params).fetchall()]
                         self._send_json(200, {"memories": rows})
                 elif path == "/clusters":
@@ -1065,11 +1068,26 @@ def run_http(host: str = "127.0.0.1", port: int = 8720, db_path: str = None):
     server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
     log.info(f"Noshy HTTP API running on http://{host}:{port}")
+
+    def _graceful_shutdown(signum=None, frame=None):
+        log.info("Shutdown signal received — closing store and stopping server")
+        server.shutdown()
+        if store:
+            store.shutdown()
+
+    signal.signal(signal.SIGTERM, _graceful_shutdown)
+    signal.signal(signal.SIGINT, _graceful_shutdown)
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        log.info("Shutting down Noshy HTTP API")
-        server.shutdown()
+        _graceful_shutdown()
+    finally:
+        if store:
+            try:
+                store.shutdown()
+            except Exception:
+                pass
 
 
 # ──────────── CLI ────────────

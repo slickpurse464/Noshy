@@ -34,19 +34,22 @@ def _get_store() -> NoshyStore:
 
 def session_context(*, project: str = None, max_memories: int = 10,
                     last_session: str = None, user_name: str = None) -> str:
+    """Generate context for a new Hermes session.
+    
+    Injects critical memories, recent decisions, active work, and user preferences.
+    Call this at the start of every session for zero-effort continuity.
     """
-    Generate context for a new Hermes session.
-    Injects critical/high memories, recent decisions, and user preferences.
+    try:
+        return _session_context_impl(project=project, max_memories=max_memories,
+                                     last_session=last_session, user_name=user_name)
+    except Exception as e:
+        log.error(f"session_context failed: {e}")
+        return f"Memory context unavailable: {e}"
 
-    Args:
-        project: Filter to specific project (None = all)
-        max_memories: Max memories to include
-        last_session: ISO timestamp of last session end
-        user_name: User's name for personalization
 
-    Returns:
-        Formatted context string ready to inject into Hermes
-    """
+def _session_context_impl(*, project: str = None, max_memories: int = 10,
+                          last_session: str = None, user_name: str = None) -> str:
+    """Internal implementation of session context generation."""
     store = _get_store()
 
     sections = []
@@ -106,17 +109,15 @@ def session_context(*, project: str = None, max_memories: int = 10,
 # ──────────── Decision Timeline ────────────
 
 def decision_timeline(*, project: str = None, days: int = 30, limit: int = 20) -> str:
-    """
-    Generate a decision audit trail — every choice, fix, and resolution.
+    """Generate a decision audit trail — every choice, fix, and resolution chronologically."""
+    try:
+        return _decision_timeline_impl(project=project, days=days, limit=limit)
+    except Exception as e:
+        log.error(f"decision_timeline failed: {e}")
+        return f"Timeline unavailable: {e}"
 
-    Args:
-        project: Filter to specific project
-        days: Look back this many days
-        limit: Max decisions to show
 
-    Returns:
-        Chronological decision timeline
-    """
+def _decision_timeline_impl(*, project: str = None, days: int = 30, limit: int = 20) -> str:
     store = _get_store()
 
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat() if days else None
@@ -165,16 +166,15 @@ def decision_timeline(*, project: str = None, days: int = 30, limit: int = 20) -
 # ──────────── Pattern Detection ────────────
 
 def detect_patterns(*, project: str = None, min_occurrences: int = 3) -> List[Dict]:
-    """
-    Find repeated solutions across sessions — candidates for skill generation.
+    """Find repeated solutions across sessions — candidates for skill generation."""
+    try:
+        return _detect_patterns_impl(project=project, min_occurrences=min_occurrences)
+    except Exception as e:
+        log.error(f"detect_patterns failed: {e}")
+        return []
 
-    Args:
-        project: Filter to specific project
-        min_occurrences: Min times a pattern must appear
 
-    Returns:
-        List of detected patterns with topic, frequency, and suggested action
-    """
+def _detect_patterns_impl(*, project: str = None, min_occurrences: int = 3) -> List[Dict]:
     store = _get_store()
 
     query = """

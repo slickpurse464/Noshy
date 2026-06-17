@@ -62,10 +62,33 @@ class NoshyStore:
         # which is what makes the threaded HTTP server safe.
         self._local = threading.local()
         self._vec_supported = False
+        self._all_conns: set = set()  # track all connections for cleanup
         self._connect()  # opens the connection and sets self._vec_supported
         self.vec_enabled = self._vec_supported
         self._init_schema()
+        self._run_migrations()
         log.info(f"Noshy store ready: {self.db_path}")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def close(self):
+        """Close all thread-local connections and checkpoint WAL."""
+        for conn in self._all_conns:
+            try:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                conn.close()
+            except Exception:
+                pass
+        self._all_conns.clear()
+        log.info("Noshy store closed — connections released, WAL checkpointed")
+
+    def shutdown(self):
+        """Graceful shutdown — same as close() but named for signal handlers."""
+        self.close()
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -83,6 +106,7 @@ class NoshyStore:
         conn.execute("PRAGMA foreign_keys=ON")
         self._vec_supported = self._try_load_sqlite_vec(conn)
         self._local.conn = conn
+        self._all_conns.add(conn)
         return conn
 
     def _try_load_sqlite_vec(self, conn: sqlite3.Connection) -> bool:
@@ -228,6 +252,67 @@ class NoshyStore:
                 self.vec_enabled = False
         else:
             log.info("sqlite-vec not available — using blob-based cosine similarity fallback")
+
+    # ──────────── Schema Migrations ────────────
+
+    def _run_migrations(self):
+        """Run incremental schema migrations. Tracks version in icm_metadata."""
+        conn = self.conn
+        conn.execute("CREATE TABLE IF NOT EXISTS icm_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        row = conn.execute("SELECT value FROM icm_metadata WHERE key = 'schema_version'").fetchone()
+        current = int(row["value"]) if row else 1
+
+        migrations = [
+            (2, self._migrate_v2),
+            (3, self._migrate_v3),
+            (4, self._migrate_v4),
+        ]
+
+        for target, migrate_fn in migrations:
+            if current < target:
+                try:
+                    migrate_fn(conn)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO icm_metadata (key, value) VALUES ('schema_version', ?)",
+                        [str(target)],
+                    )
+                    conn.commit()
+                    log.info(f"Schema migrated to v{target}")
+                except Exception as e:
+                    log.error(f"Schema migration to v{target} failed: {e}")
+                    break
+
+    def _migrate_v2(self, conn):
+        """Add graph columns: parent_id, merged_from, consolidation_count."""
+        self._add_column_if_missing(conn, "memories", "parent_id", "TEXT")
+        self._add_column_if_missing(conn, "memories", "merged_from", "TEXT")
+        self._add_column_if_missing(conn, "memories", "consolidation_count", "INTEGER DEFAULT 0")
+
+    def _migrate_v3(self, conn):
+        """Add TTL expiry column."""
+        self._add_column_if_missing(conn, "memories", "expires_at", "TEXT")
+
+    def _migrate_v4(self, conn):
+        """Add memory_edges table for graph relationships if missing."""
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS memory_edges (
+            source_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            relation TEXT DEFAULT 'related',
+            strength REAL DEFAULT 0.5,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (source_id, target_id, relation),
+            FOREIGN KEY (source_id) REFERENCES memories(id) ON DELETE CASCADE,
+            FOREIGN KEY (target_id) REFERENCES memories(id) ON DELETE CASCADE
+        )""")
+
+    @staticmethod
+    def _add_column_if_missing(conn, table: str, column: str, definition: str):
+        """Add a column to a table if it doesn't already exist."""
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            log.info(f"Added column {table}.{column}")
 
     # ──────────── CRUD Operations ────────────
 

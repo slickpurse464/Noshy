@@ -308,19 +308,34 @@ def _call_llm(prompt: str, *, api_base: str = None, api_key: str = None,
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    req = urllib.request.Request(
-        f"{api_base}/chat/completions",
-        data=body,
-        headers=headers,
-    )
 
-    try:
-        resp = urllib.request.urlopen(req, timeout=60)
-        data = json.loads(resp.read())
-        return data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    except urllib.error.HTTPError as e:
-        log.error(f"LLM call failed: HTTP {e.code}")
-        return ""
-    except Exception as e:
-        log.error(f"LLM call failed: {e}")
-        return ""
+    # Retry with exponential backoff on transient failures
+    import time as _time
+    max_retries = 3
+    for attempt in range(max_retries):
+        req = urllib.request.Request(
+            f"{api_base}/chat/completions",
+            data=body,
+            headers=headers,
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=60)
+            data = json.loads(resp.read())
+            return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 500, 502, 503) and attempt < max_retries - 1:
+                wait = 2 ** attempt
+                log.warning(f"LLM call got HTTP {e.code}, retrying in {wait}s (attempt {attempt+1}/{max_retries})")
+                _time.sleep(wait)
+                continue
+            log.error(f"LLM call failed: HTTP {{e.code}}")
+            return ""
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt
+                log.warning(f"LLM call failed: {e}, retrying in {wait}s")
+                _time.sleep(wait)
+                continue
+            log.error(f"LLM call failed after {max_retries} attempts: {e}")
+            return ""
+    return ""
