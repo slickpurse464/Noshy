@@ -39,6 +39,21 @@ Noshy gives your AI agent real memory — not note-taking, not context stuffing,
 - **Zero dependencies** — core runs on Python stdlib. fastembed and OpenAI are optional
 - **Single binary feel** — one Python file does everything
 
+## Hermes vs Noshy
+
+Hermes has built-in memory that persists across sessions, but it's small and limited to keyword matching. Noshy replaces that with a proper database that understands what you meant, not just what words you used.
+
+What Noshy adds that Hermes doesn't have by default:
+
+- **Semantic search** — finds memories by meaning, not just keyword matching. Ask about "that proxy issue" and it finds the entry about SOCKS5 configuration even if the word "proxy" isn't in it.
+- **Unbounded storage** — Hermes caps memory at ~3,500 chars. Noshy stores unlimited entries in SQLite.
+- **Richer memory types** — memories (facts/decisions), memoirs (permanent knowledge), and concepts (related ideas linked together). Hermes just has flat text entries.
+- **Graph relationships** — links related memories so recalling one pulls up connected ones.
+- **Session context injection** — automatically surfaces what you were working on, recent decisions, and active projects when a session starts.
+- **Decision timeline** — chronological log of what was decided and why, so you can trace back.
+- **Pattern detection** — notices when the same solution keeps coming up and suggests turning it into a skill.
+- **Weight decay** — older, less-referenced memories fade in relevance automatically instead of cluttering results.
+
 ## Quick Start
 
 ```bash
