@@ -43,6 +43,8 @@ Noshy gives your AI agent real memory — not note-taking, not context stuffing,
 - **Retry with backoff** — LLM extraction retries on 429/5xx with exponential backoff (3 attempts)
 - **Input validation** — empty topics, summaries, and titles are rejected before hitting the database
 - **Session hooks** — automatic memory extraction at session end, no manual calls required
+- **Numpy-vectorized cosine** — cluster detection and semantic search are ~50x faster with numpy (optional, pure-Python fallback included)
+- **Rotating request logs** — set `NOSHY_LOG_FILE` or run in a container to get `~/.noshy/noshy.log` (5MB x 3 rotation)
 
 ## Hermes vs Noshy
 
@@ -207,7 +209,8 @@ python3 server.py http
 
 Dashboard features:
 
-- **Glassmorphism UI** — animated gradient orbs, CSS grid background art, indigo/violet gradient token system
+- **Hyrule color palette** — Rupee emerald, Navi fairy blue, Sunset amber accents on a twilight dark background
+- **Animated gradient orbs** — floating radial gradients with CSS grid background art
 - **Project picker** — custom dropdown with gradient-tinted selection, animated chevron, count pills, click-outside/Esc to close
 - **Hybrid search** — keyword + semantic + graph in one query box; memoirs included
 - **Cluster view** — surface groups of near-duplicate memories and merge them in one click
@@ -217,8 +220,9 @@ Dashboard features:
 - **Toast notifications** — feedback on store/delete/consolidate actions
 - **Pagination** — `?page=1&limit=25` for large databases
 
-When `NOSHY_HTTP_TOKEN` is set, the dashboard enforces auth on API routes.
-The root `/` page and `/health` stay public for probes and human visitors.
+When `NOSHY_HTTP_TOKEN` is set, the dashboard shows a token prompt modal on
+first load. The token persists in localStorage across reloads. A "Forget"
+button clears it. API routes enforce auth; `/` and `/health` stay public.
 
 ### Session Hooks
 
@@ -402,7 +406,8 @@ http-port = 8720
 | `NOSHY_API_BASE` | `http://127.0.0.1:8642/v1` | LLM API for extraction |
 | `NOSHY_API_KEY` | `API_SERVER_KEY` | LLM API key |
 | `NOSHY_MODEL` | `hermes-agent` | Model for extraction |
-| `NOSHY_HTTP_TOKEN` | _unset_ | If set, all HTTP routes require `Authorization: Bearer <token>` (except `/health` and `/`) |
+| `NOSHY_HTTP_TOKEN` | _unset_ | If set, all HTTP routes require `Authorization: Bearer *** (except `/health` and `/`) |
+| `NOSHY_LOG_FILE` | _unset_ | If set (or stderr is not a tty), rotating logs go to `~/.noshy/noshy.log` (5MB x 3) |
 
 ### Database migrations
 
@@ -418,6 +423,7 @@ steps required. New columns are added transparently; existing data is preserved.
 │  │Extractor │ │ Store  │ │  Embedder │  │
 │  │(LLM API) │ │(SQLite)│ │(OpenAI/   │  │
 │  │ + retry  │ │ +migrate│ │ fastembed) │  │
+│  │          │ │ factory│ │ +numpy cos│  │
 │  └──────────┘ └────────┘ └───────────┘  │
 │         │          │           │         │
 │         └──────────┼───────────┘         │
@@ -467,6 +473,9 @@ The schema is compatible — memories, memoirs, concepts, and metadata all trans
 | ICM import | N/A | Built-in |
 | Config | Env vars only | TOML file + env var overrides |
 | Lifecycle | Manual process management | Graceful shutdown, auto-migration, retry |
+| Cosine similarity | Pure Python | Numpy-vectorized (~50x faster), pure-Python fallback |
+| Logs | stdout only | Rotating file logs (5MB x 3) |
+| Dashboard auth | None | Token prompt modal, localStorage persistence |
 
 ## Roadmap
 
@@ -486,12 +495,17 @@ The schema is compatible — memories, memoirs, concepts, and metadata all trans
 - [x] Streaming extraction MCP tool (`noshy_stream_extract`)
 - [x] Dashboard polish (project picker, cluster view, inline delete, theme toggle)
 - [x] TOML config file (`~/.noshy/config.toml`)
-- [x] Schema auto-migration (v1 through v4)
+- [x] Schema auto-migration (v1-v4)
 - [x] Graceful shutdown (SIGTERM/SIGINT + WAL checkpoint)
 - [x] LLM extraction retry with exponential backoff
 - [x] Session context, decision timeline, and pattern detection MCP tools
 - [x] Session-end auto-extraction hooks
 - [x] Glassmorphism dashboard redesign
+- [x] Hyrule color palette (emerald, fairy blue, sunset amber)
+- [x] Numpy-vectorized cosine similarity (~50x faster)
+- [x] Dashboard extracted to dashboard.html (server.py 1832 -> 1012 lines)
+- [x] Dashboard auth UI (token prompt modal, localStorage, Forget button)
+- [x] Rotating HTTP request logs (`NOSHY_LOG_FILE`)
 - [x] Input validation and silent-except cleanup
 - [ ] Per-user database isolation (multi-tenant — one DB per token)
 
