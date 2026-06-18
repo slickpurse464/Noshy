@@ -38,6 +38,11 @@ Noshy gives your AI agent real memory — not note-taking, not context stuffing,
 - **Any embedding provider** — OpenAI, fastembed (local, free), or Hermes API server
 - **Zero dependencies** — core runs on Python stdlib. fastembed and OpenAI are optional
 - **Single binary feel** — one Python file does everything
+- **TOML config** — `~/.noshy/config.toml` with env var overrides, no code changes needed
+- **Graceful shutdown** — SIGTERM/SIGINT handlers WAL-checkpoint the database and close connections cleanly
+- **Retry with backoff** — LLM extraction retries on 429/5xx with exponential backoff (3 attempts)
+- **Input validation** — empty topics, summaries, and titles are rejected before hitting the database
+- **Session hooks** — automatic memory extraction at session end, no manual calls required
 
 ## Hermes vs Noshy
 
@@ -157,6 +162,9 @@ mcp_servers:
 | `noshy_recall` | Search memories (keyword, semantic, hybrid) — also surfaces matching memoirs |
 | `noshy_extract_session` | LLM-powered extraction from conversation transcripts |
 | `noshy_stream_extract` | Incremental extraction for very long transcripts (chunked + overlap) |
+| `noshy_session_context` | Generate context for a new session — critical memories, recent decisions, active work. Call at session start |
+| `noshy_decision_timeline` | Chronological timeline of decisions, fixes, and resolutions. Answer "what did we decide about X?" |
+| `noshy_detect_patterns` | Find repeated solutions across sessions — candidates for creating reusable skills |
 | `noshy_consolidate` | Merge related memories on a topic |
 | `noshy_delete` | Remove a memory by id, or all memories under a topic |
 | `noshy_feedback` | Rate a memory +1/-1 to influence how long it survives |
@@ -199,11 +207,33 @@ python3 server.py http
 
 Dashboard features:
 
-- **Project picker** — filter recent memories and search by project
+- **Glassmorphism UI** — animated gradient orbs, CSS grid background art, indigo/violet gradient token system
+- **Project picker** — custom dropdown with gradient-tinted selection, animated chevron, count pills, click-outside/Esc to close
 - **Hybrid search** — keyword + semantic + graph in one query box; memoirs included
 - **Cluster view** — surface groups of near-duplicate memories and merge them in one click
-- **Inline delete** — hover a card, click `×` to remove it (with confirmation)
+- **Inline delete** — hover a card, click the trash icon to remove it (with custom confirm dialog)
 - **Dark / light theme** — auto-detected, manually toggleable, persisted to `localStorage`
+- **Animated stat counters** — live database stats with skeleton loaders on first paint
+- **Toast notifications** — feedback on store/delete/consolidate actions
+- **Pagination** — `?page=1&limit=25` for large databases
+
+When `NOSHY_HTTP_TOKEN` is set, the dashboard enforces auth on API routes.
+The root `/` page and `/health` stay public for probes and human visitors.
+
+### Session Hooks
+
+Noshy can automatically extract memories when a session ends. Drop the hook
+into your Hermes workflow or call it from any MCP client:
+
+```python
+from hooks import on_session_end
+
+result = on_session_end(transcript, project="my-project", max_memories=8)
+# → {"extracted": 5, "ids": [...], "concepts": ["deploy", "ci"]}
+```
+
+The hook skips transcripts shorter than 100 characters and returns structured
+results with extracted memory IDs and discovered concepts.
 
 ### Python API
 
@@ -231,9 +261,9 @@ Useful keyword arguments on `@noshy.remember`:
 - `importance="auto"` — let the LLM classify each memory (critical/high/medium/low)
 - `on_error=True` (default) — exceptions are stored as high-importance memories
 - `capture_args=True` — include arg names in the summary; arguments whose
-  names look like secrets (`password`, `token`, `api_key`, …) are auto-redacted
+  names look like secrets (`password`, `token`, `api_key`, ...) are auto-redacted
 - `skip_if=lambda r: r is None` — don't store certain return values
-- `ttl_seconds=…` — auto-expire after N seconds
+- `ttl_seconds=...` — auto-expire after N seconds
 
 For long-running sessions, `noshy.extractor.stream_extract(chunks)` yields
 memories incrementally as transcript chunks arrive.
@@ -341,8 +371,29 @@ human visitors still work.
 
 ## Configuration
 
+Noshy supports two configuration methods. Environment variables always take
+precedence over the config file.
+
+### Config file
+
+Create `~/.noshy/config.toml` (or set `NOSHY_CONFIG` to a custom path):
+
+```toml
+[noshy]
+db-path = "~/.noshy/memories.db"
+embed-provider = "openai"
+embed-model = ""
+api-base = "http://127.0.0.1:8642/v1"
+model = "hermes-agent"
+http-host = "127.0.0.1"
+http-port = 8720
+```
+
+### Environment variables
+
 | Env Variable | Default | Description |
 |-------------|---------|-------------|
+| `NOSHY_CONFIG` | `~/.noshy/config.toml` | Path to config file |
 | `NOSHY_DB` | `~/.noshy/memories.db` | Database path |
 | `NOSHY_EMBED_PROVIDER` | auto | openai, fastembed, hermes, or none |
 | `NOSHY_EMBED_MODEL` | provider default | Embedding model name |
@@ -353,6 +404,11 @@ human visitors still work.
 | `NOSHY_MODEL` | `hermes-agent` | Model for extraction |
 | `NOSHY_HTTP_TOKEN` | _unset_ | If set, all HTTP routes require `Authorization: Bearer <token>` (except `/health` and `/`) |
 
+### Database migrations
+
+Noshy auto-migrates the database schema on startup (v1 through v4). No manual
+steps required. New columns are added transparently; existing data is preserved.
+
 ## Architecture
 
 ```
@@ -361,7 +417,7 @@ human visitors still work.
 │  ┌──────────┐ ┌────────┐ ┌───────────┐  │
 │  │Extractor │ │ Store  │ │  Embedder │  │
 │  │(LLM API) │ │(SQLite)│ │(OpenAI/   │  │
-│  │          │ │        │ │ fastembed) │  │
+│  │ + retry  │ │ +migrate│ │ fastembed) │  │
 │  └──────────┘ └────────┘ └───────────┘  │
 │         │          │           │         │
 │         └──────────┼───────────┘         │
@@ -375,6 +431,11 @@ human visitors still work.
 │           ┌────────┴───────┐             │
 │           │  MCP / HTTP    │             │
 │           │  (stdio+API)   │             │
+│           └────────────────┘             │
+│                    │                     │
+│           ┌────────┴───────┐             │
+│           │  Session Hooks │             │
+│           │  (auto-extract)│             │
 │           └────────────────┘             │
 └─────────────────────────────────────────┘
 ```
@@ -404,6 +465,8 @@ The schema is compatible — memories, memoirs, concepts, and metadata all trans
 | MCP | Yes | Yes |
 | API | MCP only | MCP + HTTP + Python import |
 | ICM import | N/A | Built-in |
+| Config | Env vars only | TOML file + env var overrides |
+| Lifecycle | Manual process management | Graceful shutdown, auto-migration, retry |
 
 ## Roadmap
 
@@ -422,6 +485,14 @@ The schema is compatible — memories, memoirs, concepts, and metadata all trans
 - [x] PyPI release (`pip install noshy`)
 - [x] Streaming extraction MCP tool (`noshy_stream_extract`)
 - [x] Dashboard polish (project picker, cluster view, inline delete, theme toggle)
+- [x] TOML config file (`~/.noshy/config.toml`)
+- [x] Schema auto-migration (v1 through v4)
+- [x] Graceful shutdown (SIGTERM/SIGINT + WAL checkpoint)
+- [x] LLM extraction retry with exponential backoff
+- [x] Session context, decision timeline, and pattern detection MCP tools
+- [x] Session-end auto-extraction hooks
+- [x] Glassmorphism dashboard redesign
+- [x] Input validation and silent-except cleanup
 - [ ] Per-user database isolation (multi-tenant — one DB per token)
 
 ## License
